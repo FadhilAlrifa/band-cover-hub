@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+/* Custom Animations & Music Effects */
+@keyframes eq-bar {
+  0%, 100% { height: 20%; }
+  50% { height: 100%; }
+}
+
+.animate-eq-1 { animation: eq-bar 0.8s ease-in-out infinite; }
+.animate-eq-2 { animation: eq-bar 0.6s ease-in-out infinite 0.2s; }
+.animate-eq-3 { animation: eq-bar 1.1s ease-in-out infinite 0.4s; }
+.animate-eq-4 { animation: eq-bar 0.7s ease-in-out infinite 0.1s; }
+
+/* Glowing Text & Borders */
+.text-glow-amber {
+  text-shadow: 0 0 10px rgba(251, 191, 36, 0.8), 0 0 20px rgba(245, 158, 11, 0.4);
+}
+
+.shadow-neon-amber {
+  box-shadow: 0 0 20px -3px rgba(245, 158, 11, 0.4);
+}
