@@ -3,7 +3,7 @@ import { Play, Pause, RotateCcw, Radio, Music2, Gauge, CheckCircle2, Trash2, Ale
 import { transposeChord } from '../utils/chordUtils';
 import { updateSongStatus, deleteSong } from '../services/songService';
 
-export default function StageView({ song, onBack }) {
+export default function StageView({ song, onBack, onDeleteSuccess }) {
   const [transposeKeyShift, setTransposeKeyShift] = useState(0);
   const [isScrolling, setIsScrolling] = useState(false);
   const [scrollSpeed, setScrollSpeed] = useState(2);
@@ -12,37 +12,38 @@ export default function StageView({ song, onBack }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const lyricsContainerRef = useRef(null);
-  const animationFrameId = useRef(null);
 
-  // Auto Scroll Effect Kompatibel Mobile Browser
+  // Auto Scroll Effect Kompatibel iPhone / iOS & Mobile Browser
   useEffect(() => {
+    let animationFrameId;
     let lastTime = performance.now();
 
     const scrollStep = (now) => {
       if (!isScrolling || !lyricsContainerRef.current) return;
 
       const elapsed = now - lastTime;
-      const interval = 80 / scrollSpeed;
+      const interval = 50 / scrollSpeed;
 
       if (elapsed > interval) {
-        lyricsContainerRef.current.scrollTop += 1;
+        const container = lyricsContainerRef.current;
+        if (container.scrollTop + container.clientHeight >= container.scrollHeight - 5) {
+          setIsScrolling(false);
+        } else {
+          container.scrollTop += 1;
+        }
         lastTime = now;
       }
 
-      animationFrameId.current = requestAnimationFrame(scrollStep);
+      animationFrameId = requestAnimationFrame(scrollStep);
     };
 
     if (isScrolling) {
-      animationFrameId.current = requestAnimationFrame(scrollStep);
-    } else {
-      if (animationFrameId.current) {
-        cancelAnimationFrame(animationFrameId.current);
-      }
+      animationFrameId = requestAnimationFrame(scrollStep);
     }
 
     return () => {
-      if (animationFrameId.current) {
-        cancelAnimationFrame(animationFrameId.current);
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
       }
     };
   }, [isScrolling, scrollSpeed]);
@@ -65,6 +66,7 @@ export default function StageView({ song, onBack }) {
     try {
       await deleteSong(song.id);
       alert(`Lagu "${song.title}" berhasil dihapus.`);
+      if (onDeleteSuccess) onDeleteSuccess(song.id);
       onBack();
     } catch (err) {
       alert("Gagal menghapus lagu.");
@@ -73,7 +75,6 @@ export default function StageView({ song, onBack }) {
     }
   };
 
-  // Parsing Lirik Format Bracket [Chord] Presisi 2-Layer Monospace
   const parseBracketLyrics = (text, shift = 0) => {
     if (!text) return null;
 
@@ -81,11 +82,9 @@ export default function StageView({ song, onBack }) {
 
     return rawLines.map((line, lineIdx) => {
       const trimmed = line.trim();
-
       if (!trimmed) return <div key={lineIdx} className="h-5" />;
 
-      // Tag Section Header
-      const sectionMatch = trimmed.match(/^\[\s*(intro|verse\s*\d*|chorus\s*\d*|reff|bridge|solo|interlude|instrument|outro)\s*\]$/i);
+      const sectionMatch = trimmed.match(/^\[\s*(intro|verse\s*\d*|chorus\s*\d*|reff|bridge|solo|interlude|instrument|outro|[\*]+)\s*\]$/i);
       if (sectionMatch) {
         return (
           <div key={lineIdx} className="font-extrabold text-amber-300 mt-8 mb-4 text-sm tracking-widest uppercase border-b border-amber-500/30 pb-1 flex items-center gap-2 select-none">
@@ -95,7 +94,6 @@ export default function StageView({ song, onBack }) {
         );
       }
 
-      // Ekstrak Chord & Susun String Lirik Murni
       const regex = /\[(.*?)\]/g;
       const chords = [];
       let cleanLine = '';
@@ -104,7 +102,6 @@ export default function StageView({ song, onBack }) {
 
       while ((match = regex.exec(line)) !== null) {
         cleanLine += line.substring(lastIndex, match.index);
-        
         const charPos = cleanLine.length;
         const transposed = transposeChord(match[1], shift);
 
@@ -123,7 +120,6 @@ export default function StageView({ song, onBack }) {
       }
       cleanLine += line.substring(lastIndex);
 
-      // Render Baris Murni Chord
       if (!cleanLine.trim() && chords.length > 0) {
         return (
           <div key={lineIdx} className="flex flex-wrap items-center gap-3 my-3">
@@ -131,7 +127,6 @@ export default function StageView({ song, onBack }) {
               <span
                 key={idx}
                 className="text-amber-300 font-black text-xs font-mono tracking-wider px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 shadow-[0_0_10px_rgba(251,191,36,0.5)] select-none"
-                style={{ textShadow: '0 0 8px rgba(251, 191, 36, 0.9)' }}
               >
                 {c.chord}
               </span>
@@ -140,17 +135,13 @@ export default function StageView({ song, onBack }) {
         );
       }
 
-      // Render Baris Lirik Utuh dengan Overlay Chord Melayang
       return (
         <div key={lineIdx} className="relative pt-7 pb-1 my-1 text-left font-mono">
           {chords.map((c, cIdx) => (
             <span
               key={cIdx}
               className="absolute top-0 text-amber-300 font-black text-xs font-mono tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 shadow-[0_0_10px_rgba(251,191,36,0.5)] select-none whitespace-nowrap z-10"
-              style={{
-                left: `calc(${c.pos + c.offset}ch)`,
-                textShadow: '0 0 8px rgba(251, 191, 36, 0.9)'
-              }}
+              style={{ left: `calc(${c.pos + c.offset}ch)` }}
             >
               {c.chord}
             </span>
@@ -166,41 +157,44 @@ export default function StageView({ song, onBack }) {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-slate-950 z-20">
-      {/* Top Controller Console */}
       <div className="bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 border-b border-slate-800/90 p-4 space-y-3.5 shadow-2xl">
         <div className="flex items-center justify-between">
-          <button
-            onClick={onBack}
-            className="text-xs text-amber-400 font-bold flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 transition-all active:scale-95"
-          >
-            ← Kembali
-          </button>
-
           <div className="flex items-center gap-2">
+            <button
+              onClick={onBack}
+              className="text-xs text-amber-400 font-bold flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 transition-all active:scale-95"
+            >
+              ← Kembali
+            </button>
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl transition-all active:scale-95"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Hapus</span>
+            </button>
+          </div>
 
-            {/* Transpose Control */}
-            <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2 py-1">
-              <span className="text-[11px] text-slate-400 font-mono uppercase font-bold mr-1">Transpose:</span>
-              <button
-                onClick={() => setTransposeKeyShift(prev => prev - 1)}
-                className="w-7 h-7 bg-slate-800 hover:bg-slate-700 active:scale-90 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold transition-all"
-              >
-                -
-              </button>
-              <span className="text-xs font-black text-amber-300 w-7 text-center font-mono">
-                {transposeKeyShift > 0 ? `+${transposeKeyShift}` : transposeKeyShift}
-              </span>
-              <button
-                onClick={() => setTransposeKeyShift(prev => prev + 1)}
-                className="w-7 h-7 bg-slate-800 hover:bg-slate-700 active:scale-90 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold transition-all"
-              >
-                +
-              </button>
-            </div>
+          <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2 py-1">
+            <span className="text-[11px] text-slate-400 font-mono uppercase font-bold mr-1">Transpose:</span>
+            <button
+              onClick={() => setTransposeKeyShift(prev => prev - 1)}
+              className="w-7 h-7 bg-slate-800 hover:bg-slate-700 active:scale-90 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold"
+            >
+              -
+            </button>
+            <span className="text-xs font-black text-amber-300 w-7 text-center font-mono">
+              {transposeKeyShift > 0 ? `+${transposeKeyShift}` : transposeKeyShift}
+            </span>
+            <button
+              onClick={() => setTransposeKeyShift(prev => prev + 1)}
+              className="w-7 h-7 bg-slate-800 hover:bg-slate-700 active:scale-90 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold"
+            >
+              +
+            </button>
           </div>
         </div>
 
-        {/* Title & Info */}
         <div className="flex items-center justify-between gap-2">
           <div>
             <h2 className="text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
@@ -222,15 +216,14 @@ export default function StageView({ song, onBack }) {
           )}
         </div>
 
-        {/* Stage Play Bar */}
         <div className="flex items-center justify-between bg-slate-950 border border-amber-500/20 rounded-2xl p-2.5 shadow-inner">
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsScrolling(!isScrolling)}
               className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all active:scale-95 ${
                 isScrolling
-                  ? 'bg-rose-500/20 border border-rose-500/50 text-rose-400 animate-pulse shadow-[0_0_15px_rgba(244,63,94,0.4)]'
-                  : 'bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 shadow-neon-amber'
+                  ? 'bg-rose-500/20 border border-rose-500/50 text-rose-400 animate-pulse'
+                  : 'bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950'
               }`}
             >
               {isScrolling ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
@@ -241,8 +234,7 @@ export default function StageView({ song, onBack }) {
               onClick={() => {
                 if (lyricsContainerRef.current) lyricsContainerRef.current.scrollTop = 0;
               }}
-              className="p-2 bg-slate-900 text-slate-400 hover:text-white border border-slate-800 rounded-xl active:scale-90 transition-all"
-              title="Reset ke atas"
+              className="p-2 bg-slate-900 text-slate-400 hover:text-white border border-slate-800 rounded-xl"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
@@ -262,17 +254,49 @@ export default function StageView({ song, onBack }) {
         </div>
       </div>
 
-      {/* Stage Sheet Container */}
       <div
         ref={lyricsContainerRef}
-        className="flex-1 px-6 pt-6 pb-12 overflow-y-auto space-y-2 select-text scroll-smooth bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900/50 via-slate-950 to-slate-950"
+        className="flex-1 px-6 pt-6 pb-24 overflow-y-auto space-y-2 select-text bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900/50 via-slate-950 to-slate-950"
         style={{ 
-          maxHeight: 'calc(100vh - 220px)',
-          WebkitOverflowScrolling: 'touch' 
+          maxHeight: 'calc(100vh - 200px)',
+          WebkitOverflowScrolling: 'touch',
+          transform: 'translateZ(0)'
         }}
       >
         {parseBracketLyrics(song.lyrics, transposeKeyShift)}
       </div>
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="p-2 bg-rose-500/10 border border-rose-500/30 rounded-xl">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-white">Hapus Lagu?</h3>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Apakah kamu yakin ingin menghapus lagu <span className="font-bold text-amber-400">"{song.title}"</span>?
+            </p>
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={isDeleting}
+                className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white bg-slate-800 rounded-xl"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleDeleteSong}
+                disabled={isDeleting}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 rounded-xl shadow-lg"
+              >
+                {isDeleting ? 'Menghapus...' : 'Ya, Hapus'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

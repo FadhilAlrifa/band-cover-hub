@@ -6,7 +6,6 @@ export default function SongCard({ song, onSelectSong, onDeleteSuccess }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Function terpisah untuk handle buka lagu
   const handleCardClick = (e) => {
     e.preventDefault();
     if (onSelectSong) {
@@ -37,7 +36,6 @@ export default function SongCard({ song, onSelectSong, onDeleteSuccess }) {
         onClick={handleCardClick}
         className="group relative bg-slate-900/80 hover:bg-slate-900 border border-slate-800/80 hover:border-amber-500/30 rounded-2xl p-4 transition-all duration-200 shadow-lg hover:shadow-amber-500/5 flex items-center justify-between gap-3 cursor-pointer select-none active:scale-[0.99]"
       >
-        {/* Info Lagu */}
         <div className="flex-1 min-w-0 space-y-2 pointer-events-none">
           <div className="flex items-center gap-2">
             <h3 className="font-extrabold text-base text-white tracking-tight truncate group-hover:text-amber-300 transition-colors">
@@ -64,9 +62,7 @@ export default function SongCard({ song, onSelectSong, onDeleteSuccess }) {
           </div>
         </div>
 
-        {/* Action Buttons */}
         <div className="flex items-center gap-2 shrink-0 z-20">
-          {/* Tombol Hapus */}
           <button
             type="button"
             onClick={(e) => {
@@ -79,14 +75,12 @@ export default function SongCard({ song, onSelectSong, onDeleteSuccess }) {
             <Trash2 className="w-4 h-4" />
           </button>
 
-          {/* Icon Panah Detail */}
           <div className="p-2.5 rounded-xl bg-slate-800/80 group-hover:bg-amber-500 group-hover:text-slate-950 text-slate-300 border border-slate-700/60 transition-all pointer-events-none">
             <ChevronRight className="w-4 h-4" />
           </div>
         </div>
       </div>
 
-      {/* Modal Konfirmasi Hapus */}
       {showDeleteConfirm && (
         <div 
           onClick={(e) => e.stopPropagation()} 
@@ -112,7 +106,7 @@ export default function SongCard({ song, onSelectSong, onDeleteSuccess }) {
                   setShowDeleteConfirm(false);
                 }}
                 disabled={isDeleting}
-                className="px-3.5 py-1.5 text-xs font-bold text-slate-400 hover:text-white bg-slate-800 rounded-xl transition-all active:scale-95"
+                className="px-3.5 py-1.5 text-xs font-bold text-slate-400 hover:text-white bg-slate-800 rounded-xl"
               >
                 Batal
               </button>
@@ -120,7 +114,7 @@ export default function SongCard({ song, onSelectSong, onDeleteSuccess }) {
                 type="button"
                 onClick={handleDelete}
                 disabled={isDeleting}
-                className="px-3.5 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 rounded-xl transition-all shadow-lg active:scale-95 disabled:opacity-50"
+                className="px-3.5 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 rounded-xl shadow-lg"
               >
                 {isDeleting ? 'Menghapus...' : 'Ya, Hapus'}
               </button>

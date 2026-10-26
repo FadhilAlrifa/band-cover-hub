@@ -1,7 +1,5 @@
-// Ambil instance supabase dari file supabase.js yang ada di folder services yang sama
 import { supabase } from './supabase';
 
-// 1. Ambil semua lagu dari Supabase
 export const fetchSongs = async () => {
   const { data, error } = await supabase
     .from('songs')
@@ -15,10 +13,8 @@ export const fetchSongs = async () => {
   return data;
 };
 
-// Alias untuk kompatibilitas
 export const getSongs = fetchSongs;
 
-// 2. Tambah lagu baru ke database
 export const addSongToDatabase = async (songData, uploadedBy) => {
   const { data, error } = await supabase
     .from('songs')
@@ -42,10 +38,8 @@ export const addSongToDatabase = async (songData, uploadedBy) => {
   return data ? data[0] : null;
 };
 
-// Alias untuk kompatibilitas
 export const addSong = (songData) => addSongToDatabase(songData, null);
 
-// 3. Langganan perubahan Real-time
 export const subscribeToSongs = (onDataUpdate) => {
   const channel = supabase
     .channel('public:songs')
@@ -64,7 +58,6 @@ export const subscribeToSongs = (onDataUpdate) => {
   };
 };
 
-// 4. Ubah status lagu (wishlist -> completed)
 export const updateSongStatus = async (songId, newStatus) => {
   const { data, error } = await supabase
     .from('songs')
@@ -79,7 +72,6 @@ export const updateSongStatus = async (songId, newStatus) => {
   return data;
 };
 
-// 5. Hapus lagu berdasarkan ID
 export const deleteSong = async (songId) => {
   const { data, error } = await supabase
     .from('songs')
