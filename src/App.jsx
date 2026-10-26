@@ -8,7 +8,12 @@ import AddSongModal from './components/AddSongModal';
 import { fetchSongs, addSongToDatabase, subscribeToSongs } from './services/songService';
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(null);
+  // Ambil user dari localStorage agar tidak minta login terus saat refresh
+  const [currentUser, setCurrentUser] = useState(() => {
+    const savedUser = localStorage.getItem('band_hub_user');
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+
   const [songs, setSongs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('wishlist');
@@ -18,16 +23,19 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showConverterModal, setShowConverterModal] = useState(false);
 
-  // Mengambil data awal dan mengaktifkan real-time listener apabila pengguna log masuk
+  // Simpan data login ke localStorage
+  const handleLogin = (userData) => {
+    localStorage.setItem('band_hub_user', JSON.stringify(userData));
+    setCurrentUser(userData);
+  };
+
   useEffect(() => {
     if (currentUser) {
-      // Fetch lagu kali pertama
       fetchSongs().then((data) => {
         setSongs(data);
         setLoading(false);
       });
 
-      // Aktifkan langganan real-time
       const unsubscribe = subscribeToSongs((updatedSongs) => {
         setSongs(updatedSongs);
       });
@@ -36,19 +44,17 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Pengendali untuk menambah lagu baru
   const handleAddSong = async (newSong) => {
     try {
       await addSongToDatabase(newSong, currentUser.name);
       setShowAddModal(false);
     } catch (err) {
-      alert("Gagal menyimpan lagu ke dalam pangkalan data.");
+      alert("Gagal menyimpan lagu ke pangkalan data.");
     }
   };
 
-  // Paparan modal log masuk jika pengguna belum log masuk
   if (!currentUser) {
-    return <LoginModal onLogin={setCurrentUser} />;
+    return <LoginModal onLogin={handleLogin} />;
   }
 
   return (
