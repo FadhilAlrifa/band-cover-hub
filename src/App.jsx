@@ -1,100 +1,84 @@
 import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
-import LoginModal from './components/LoginModal';
 import SongList from './components/SongList';
 import StageView from './components/StageView';
 import ConverterModal from './components/ConverterModal';
-import AddSongModal from './components/AddSongModal';
-import { fetchSongs, addSongToDatabase, subscribeToSongs } from './services/songService';
+
+// Import fungsi helper langsung dari songService
+import { getSongs, addSong } from './services/songService';
 
 export default function App() {
-  // Ambil user dari localStorage agar tidak minta login terus saat refresh
-  const [currentUser, setCurrentUser] = useState(() => {
-    const savedUser = localStorage.getItem('band_hub_user');
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
-
   const [songs, setSongs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('wishlist');
-  const [searchQuery, setSearchQuery] = useState('');
   const [selectedSong, setSelectedSong] = useState(null);
-
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showConverterModal, setShowConverterModal] = useState(false);
-
-  // Simpan data login ke localStorage
-  const handleLogin = (userData) => {
-    localStorage.setItem('band_hub_user', JSON.stringify(userData));
-    setCurrentUser(userData);
-  };
+  const [isConverterOpen, setIsConverterOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (currentUser) {
-      fetchSongs().then((data) => {
-        setSongs(data);
-        setLoading(false);
-      });
+    fetchSongs();
+  }, []);
 
-      const unsubscribe = subscribeToSongs((updatedSongs) => {
-        setSongs(updatedSongs);
-      });
-
-      return () => unsubscribe();
-    }
-  }, [currentUser]);
-
-  const handleAddSong = async (newSong) => {
+  const fetchSongs = async () => {
+    setIsLoading(true);
     try {
-      await addSongToDatabase(newSong, currentUser.name);
-      setShowAddModal(false);
+      const data = await getSongs();
+      setSongs(data || []);
     } catch (err) {
-      alert("Gagal menyimpan lagu ke pangkalan data.");
+      console.error('Gagal mengambil data lagu:', err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  if (!currentUser) {
-    return <LoginModal onLogin={handleLogin} />;
-  }
+  const handleAddSong = async (newSongData) => {
+    try {
+      const createdSong = await addSong(newSongData);
+      if (createdSong) {
+        setSongs((prev) => [createdSong, ...prev]);
+      }
+    } catch (err) {
+      alert('Gagal menambah lagu ke database.');
+    }
+  };
+
+  const handleDeleteSuccess = (deletedId) => {
+    setSongs((prev) => prev.filter((s) => s.id !== deletedId));
+    if (selectedSong && selectedSong.id === deletedId) {
+      setSelectedSong(null);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans max-w-md mx-auto relative shadow-2xl border-x border-slate-800/50">
-      <Header
-        currentUser={currentUser}
-        onOpenConverter={() => setShowConverterModal(true)}
+    <div className="h-screen w-screen flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans">
+      <Header onOpenConverter={() => setIsConverterOpen(true)} />
+
+      <main className="flex-1 overflow-hidden relative flex flex-col">
+        {isLoading ? (
+          <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">
+            Memuat daftar lagu...
+          </div>
+        ) : selectedSong ? (
+          <StageView
+            song={selectedSong}
+            onBack={() => {
+              setSelectedSong(null);
+              fetchSongs();
+            }}
+          />
+        ) : (
+          <SongList
+            songs={songs}
+            onSelectSong={(song) => setSelectedSong(song)}
+            onDeleteSuccess={handleDeleteSuccess}
+            onAddSong={handleAddSong}
+            onOpenConverter={() => setIsConverterOpen(true)}
+          />
+        )}
+      </main>
+
+      <ConverterModal
+        isOpen={isConverterOpen}
+        onClose={() => setIsConverterOpen(false)}
       />
-
-      {loading ? (
-        <div className="flex-1 flex items-center justify-center p-8 text-amber-400 font-semibold text-sm animate-pulse">
-          Memuatkan lagu dari Supabase...
-        </div>
-      ) : !selectedSong ? (
-        <SongList
-          songs={songs}
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          onSelectSong={setSelectedSong}
-          onOpenAddModal={() => setShowAddModal(true)}
-        />
-      ) : (
-        <StageView
-          song={selectedSong}
-          onBack={() => setSelectedSong(null)}
-        />
-      )}
-
-      {showConverterModal && (
-        <ConverterModal onClose={() => setShowConverterModal(false)} />
-      )}
-
-      {showAddModal && (
-        <AddSongModal
-          onClose={() => setShowAddModal(false)}
-          onAddSong={handleAddSong}
-        />
-      )}
     </div>
   );
 }

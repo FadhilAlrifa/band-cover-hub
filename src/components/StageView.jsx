@@ -1,35 +1,58 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, RotateCcw, Radio, Music2, Gauge, CheckCircle2 } from 'lucide-react';
+import { Play, Pause, RotateCcw, Radio, Music2, Gauge, CheckCircle2, Trash2, AlertTriangle } from 'lucide-react';
 import { transposeChord } from '../utils/chordUtils';
-import { updateSongStatus } from '../services/songService';
+import { updateSongStatus, deleteSong } from '../services/songService';
 
 export default function StageView({ song, onBack }) {
   const [transposeKeyShift, setTransposeKeyShift] = useState(0);
   const [isScrolling, setIsScrolling] = useState(false);
   const [scrollSpeed, setScrollSpeed] = useState(2);
   const [isUpdating, setIsUpdating] = useState(false);
-  const lyricsContainerRef = useRef(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // Auto Scroll Effect
+  const lyricsContainerRef = useRef(null);
+  const animationFrameId = useRef(null);
+
+  // Auto Scroll Effect Kompatibel Mobile Browser
   useEffect(() => {
-    let scrollInterval = null;
+    let lastTime = performance.now();
+
+    const scrollStep = (now) => {
+      if (!isScrolling || !lyricsContainerRef.current) return;
+
+      const elapsed = now - lastTime;
+      const interval = 80 / scrollSpeed;
+
+      if (elapsed > interval) {
+        lyricsContainerRef.current.scrollTop += 1;
+        lastTime = now;
+      }
+
+      animationFrameId.current = requestAnimationFrame(scrollStep);
+    };
+
     if (isScrolling) {
-      scrollInterval = setInterval(() => {
-        if (lyricsContainerRef.current) {
-          lyricsContainerRef.current.scrollTop += 1;
-        }
-      }, 50 / scrollSpeed);
+      animationFrameId.current = requestAnimationFrame(scrollStep);
+    } else {
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+      }
     }
-    return () => clearInterval(scrollInterval);
+
+    return () => {
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+      }
+    };
   }, [isScrolling, scrollSpeed]);
 
-  // Fungsi untuk mengubah status lagu menjadi 'completed' (Sudah Dicover)
   const handleMarkAsCompleted = async () => {
     setIsUpdating(true);
     try {
       await updateSongStatus(song.id, 'completed');
       alert(`Lagu "${song.title}" berhasil dipindahkan ke "Sudah Dicover"!`);
-      onBack(); // Kembali ke daftar lagu setelah berhasil
+      onBack();
     } catch (err) {
       alert("Gagal memperbarui status lagu.");
     } finally {
@@ -37,65 +60,105 @@ export default function StageView({ song, onBack }) {
     }
   };
 
-  // Parsing lirik format bracket [Chord]
+  const handleDeleteSong = async () => {
+    setIsDeleting(true);
+    try {
+      await deleteSong(song.id);
+      alert(`Lagu "${song.title}" berhasil dihapus.`);
+      onBack();
+    } catch (err) {
+      alert("Gagal menghapus lagu.");
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
+  // Parsing Lirik Format Bracket [Chord] Presisi 2-Layer Monospace
   const parseBracketLyrics = (text, shift = 0) => {
-    const lines = text.split('\n');
-    return lines.map((line, lineIdx) => {
-      // Header Bagian Lagu (Intro, Verse, Reff, Solo)
-      if (line.trim().startsWith('[') && line.trim().endsWith(']') && !line.includes(' ')) {
+    if (!text) return null;
+
+    const rawLines = text.replace(/\u00a0/g, ' ').split('\n');
+
+    return rawLines.map((line, lineIdx) => {
+      const trimmed = line.trim();
+
+      if (!trimmed) return <div key={lineIdx} className="h-5" />;
+
+      // Tag Section Header
+      const sectionMatch = trimmed.match(/^\[\s*(intro|verse\s*\d*|chorus\s*\d*|reff|bridge|solo|interlude|instrument|outro)\s*\]$/i);
+      if (sectionMatch) {
         return (
-          <div key={lineIdx} className="font-extrabold text-amber-300 mt-6 mb-2 text-sm tracking-widest uppercase border-b border-amber-500/30 pb-1 flex items-center gap-2">
+          <div key={lineIdx} className="font-extrabold text-amber-300 mt-8 mb-4 text-sm tracking-widest uppercase border-b border-amber-500/30 pb-1 flex items-center gap-2 select-none">
             <Radio className="w-4 h-4 text-amber-400 animate-pulse" />
-            <span>{line.trim().replace('[', '').replace(']', '')}</span>
+            <span>{trimmed.slice(1, -1)}</span>
           </div>
         );
       }
 
+      // Ekstrak Chord & Susun String Lirik Murni
       const regex = /\[(.*?)\]/g;
-      const parts = [];
+      const chords = [];
+      let cleanLine = '';
       let lastIndex = 0;
       let match;
 
       while ((match = regex.exec(line)) !== null) {
-        if (match.index > lastIndex) {
-          parts.push({ lyric: line.substring(lastIndex, match.index), chord: '' });
+        cleanLine += line.substring(lastIndex, match.index);
+        
+        const charPos = cleanLine.length;
+        const transposed = transposeChord(match[1], shift);
+
+        let offset = 0;
+        if (chords.length > 0) {
+          const prev = chords[chords.length - 1];
+          const diff = charPos - prev.pos;
+          const minSpace = prev.chord.length + 2;
+          if (diff < minSpace) {
+            offset = prev.offset + (minSpace - diff);
+          }
         }
-        const chordTransposed = transposeChord(match[1], shift);
-        parts.push({ lyric: '', chord: chordTransposed });
+
+        chords.push({ chord: transposed, pos: charPos, offset });
         lastIndex = regex.lastIndex;
       }
+      cleanLine += line.substring(lastIndex);
 
-      if (lastIndex < line.length) {
-        parts.push({ lyric: line.substring(lastIndex), chord: '' });
+      // Render Baris Murni Chord
+      if (!cleanLine.trim() && chords.length > 0) {
+        return (
+          <div key={lineIdx} className="flex flex-wrap items-center gap-3 my-3">
+            {chords.map((c, idx) => (
+              <span
+                key={idx}
+                className="text-amber-300 font-black text-xs font-mono tracking-wider px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 shadow-[0_0_10px_rgba(251,191,36,0.5)] select-none"
+                style={{ textShadow: '0 0 8px rgba(251, 191, 36, 0.9)' }}
+              >
+                {c.chord}
+              </span>
+            ))}
+          </div>
+        );
       }
 
-      const merged = [];
-      for (let i = 0; i < parts.length; i++) {
-        if (parts[i].chord && parts[i + 1] && parts[i + 1].lyric) {
-          merged.push({ chord: parts[i].chord, lyric: parts[i + 1].lyric });
-          i++;
-        } else if (parts[i].chord) {
-          merged.push({ chord: parts[i].chord, lyric: ' ' });
-        } else {
-          merged.push({ chord: '', lyric: parts[i].lyric });
-        }
-      }
-
+      // Render Baris Lirik Utuh dengan Overlay Chord Melayang
       return (
-        <div key={lineIdx} className="flex flex-wrap items-end min-h-[3rem] my-1.5">
-          {merged.length === 0 ? <br /> : merged.map((item, itemIdx) => (
-            <div key={itemIdx} className="flex flex-col items-start mr-2 leading-tight">
-              {item.chord && (
-                <span 
-                  className="text-amber-300 font-black text-base font-mono tracking-wider px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-400/40 shadow-[0_0_15px_rgba(251,191,36,0.5)] transition-all duration-200 hover:scale-110"
-                  style={{ textShadow: '0 0 10px rgba(251, 191, 36, 0.9), 0 0 20px rgba(245, 158, 11, 0.6)' }}
-                >
-                  {item.chord}
-                </span>
-              )}
-              <span className="text-slate-100 text-base font-semibold tracking-wide">{item.lyric}</span>
-            </div>
+        <div key={lineIdx} className="relative pt-7 pb-1 my-1 text-left font-mono">
+          {chords.map((c, cIdx) => (
+            <span
+              key={cIdx}
+              className="absolute top-0 text-amber-300 font-black text-xs font-mono tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 shadow-[0_0_10px_rgba(251,191,36,0.5)] select-none whitespace-nowrap z-10"
+              style={{
+                left: `calc(${c.pos + c.offset}ch)`,
+                textShadow: '0 0 8px rgba(251, 191, 36, 0.9)'
+              }}
+            >
+              {c.chord}
+            </span>
           ))}
+
+          <div className="text-slate-100 font-semibold text-base font-mono whitespace-pre-wrap leading-normal">
+            {cleanLine}
+          </div>
         </div>
       );
     });
@@ -113,28 +176,31 @@ export default function StageView({ song, onBack }) {
             ← Kembali
           </button>
 
-          {/* Transpose Key Control */}
-          <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2 py-1">
-            <span className="text-[11px] text-slate-400 font-mono uppercase font-bold mr-1">Transpose:</span>
-            <button
-              onClick={() => setTransposeKeyShift(prev => prev - 1)}
-              className="w-7 h-7 bg-slate-800 hover:bg-slate-700 active:scale-90 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold transition-all"
-            >
-              -
-            </button>
-            <span className="text-xs font-black text-amber-300 w-7 text-center font-mono">
-              {transposeKeyShift > 0 ? `+${transposeKeyShift}` : transposeKeyShift}
-            </span>
-            <button
-              onClick={() => setTransposeKeyShift(prev => prev + 1)}
-              className="w-7 h-7 bg-slate-800 hover:bg-slate-700 active:scale-90 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold transition-all"
-            >
-              +
-            </button>
+          <div className="flex items-center gap-2">
+
+            {/* Transpose Control */}
+            <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2 py-1">
+              <span className="text-[11px] text-slate-400 font-mono uppercase font-bold mr-1">Transpose:</span>
+              <button
+                onClick={() => setTransposeKeyShift(prev => prev - 1)}
+                className="w-7 h-7 bg-slate-800 hover:bg-slate-700 active:scale-90 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold transition-all"
+              >
+                -
+              </button>
+              <span className="text-xs font-black text-amber-300 w-7 text-center font-mono">
+                {transposeKeyShift > 0 ? `+${transposeKeyShift}` : transposeKeyShift}
+              </span>
+              <button
+                onClick={() => setTransposeKeyShift(prev => prev + 1)}
+                className="w-7 h-7 bg-slate-800 hover:bg-slate-700 active:scale-90 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold transition-all"
+              >
+                +
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Title & Info & Status Button */}
+        {/* Title & Info */}
         <div className="flex items-center justify-between gap-2">
           <div>
             <h2 className="text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
@@ -144,7 +210,6 @@ export default function StageView({ song, onBack }) {
             <p className="text-xs text-slate-400 font-medium pl-7">{song.artist}</p>
           </div>
 
-          {/* Tombol Tandai Selesai Cover jika lagu masih di Wishlist */}
           {song.status === 'wishlist' && (
             <button
               onClick={handleMarkAsCompleted}
@@ -157,7 +222,7 @@ export default function StageView({ song, onBack }) {
           )}
         </div>
 
-        {/* Stage Play Controller Bar */}
+        {/* Stage Play Bar */}
         <div className="flex items-center justify-between bg-slate-950 border border-amber-500/20 rounded-2xl p-2.5 shadow-inner">
           <div className="flex items-center gap-2">
             <button
@@ -197,11 +262,14 @@ export default function StageView({ song, onBack }) {
         </div>
       </div>
 
-      {/* Interactive Stage Sheet Container */}
+      {/* Stage Sheet Container */}
       <div
         ref={lyricsContainerRef}
-        className="flex-1 p-6 overflow-y-auto space-y-2 select-text scroll-smooth bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900/50 via-slate-950 to-slate-950"
-        style={{ maxHeight: 'calc(100vh - 220px)' }}
+        className="flex-1 px-6 pt-6 pb-12 overflow-y-auto space-y-2 select-text scroll-smooth bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900/50 via-slate-950 to-slate-950"
+        style={{ 
+          maxHeight: 'calc(100vh - 220px)',
+          WebkitOverflowScrolling: 'touch' 
+        }}
       >
         {parseBracketLyrics(song.lyrics, transposeKeyShift)}
       </div>

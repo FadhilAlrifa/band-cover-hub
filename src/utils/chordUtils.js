@@ -1,66 +1,139 @@
-export const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-
-export const transposeChord = (chord, semitones) => {
+// Transpose chord
+export const transposeChord = (chord, shift) => {
+  if (!shift) return chord;
+  const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   return chord.replace(/([A-G][#b]?)/g, (match) => {
-    let index = NOTES.indexOf(match);
-    if (index === -1) return match;
-    let newIndex = (index + semitones) % 12;
-    if (newIndex < 0) newIndex += 12;
-    return NOTES[newIndex];
+    let isFlat = match.endsWith('b');
+    let note = match;
+    if (isFlat) {
+      const flatMap = { 'Db': 'C#', 'Eb': 'D#', 'Gb': 'F#', 'Ab': 'G#', 'Bb': 'A#' };
+      note = flatMap[match] || match;
+    }
+    const idx = notes.indexOf(note);
+    if (idx === -1) return match;
+    let newIdx = (idx + shift) % 12;
+    if (newIdx < 0) newIdx += 12;
+    return notes[newIdx];
   });
 };
 
-export const convertStandardToBracket = (rawText) => {
-  const lines = rawText.replace(/\u00a0/g, ' ').split('\n');
-  let result = [];
+/**
+ * Converter Presisi dengan Auto-Expand "Back to" Section
+ */
+export const convertToBracketLyrics = (rawText) => {
+  if (!rawText) return '';
 
-  const isChordWord = (word) => {
-    const clean = word.trim();
-    if (!clean) return false;
-    return /^[A-G][#b]?(m|maj|min|dim|aug|sus|add)?[0-9]*(\/[A-G][#b]?)?$/i.test(clean);
-  };
+  const lines = rawText.split('\n');
+  const sections = {}; // Menyimpan koleksi baris per section (misal: [reff], [*], [verse 1])
+  let currentSectionKey = null;
 
-  const isChordLine = (line) => {
-    const words = line.trim().split(/\s+/).filter(Boolean);
-    if (words.length === 0) return false;
-    const chordCount = words.filter(isChordWord).length;
-    return chordCount / words.length >= 0.6;
-  };
-
+  // Pass 1: Petakan teks asli ke dalam memori berdasarkan section header
   for (let i = 0; i < lines.length; i++) {
     const currentLine = lines[i];
+    const trimmed = currentLine.trim();
 
-    if (isChordLine(currentLine)) {
-      const nextLine = lines[i + 1];
-
-      if (nextLine && !isChordLine(nextLine) && nextLine.trim().length > 0) {
-        let merged = '';
-        let lastPos = 0;
-
-        const chordMatches = [];
-        const regex = /([A-G][#b]?(?:m|maj|min|dim|aug|sus|add)?[0-9]*(?:\/[A-G][#b]?)?)/gi;
-        let match;
-        while ((match = regex.exec(currentLine)) !== null) {
-          chordMatches.push({ chord: match[0], index: match.index });
-        }
-
-        chordMatches.forEach((m) => {
-          const pos = Math.min(m.index, nextLine.length);
-          merged += nextLine.substring(lastPos, pos) + `[${m.chord}]`;
-          lastPos = pos;
-        });
-
-        merged += nextLine.substring(lastPos);
-        result.push(merged);
-        i++;
-      } else {
-        const convertedAlone = currentLine.replace(/([A-G][#b]?(?:m|maj|min|dim|aug|sus|add)?[0-9]*(?:\/[A-G][#b]?)?)/gi, '[$1]');
-        result.push(convertedAlone);
+    // Deteksi Header Section (misal: [Verse 1], [reff], [Chorus], [*])
+    const sectionMatch = trimmed.match(/^\[\s*(intro|verse\s*\d*|chorus\s*\d*|reff|bridge|solo|interlude|instrument|outro|[\*]+)\s*\]$/i);
+    
+    if (sectionMatch) {
+      currentSectionKey = trimmed.toLowerCase();
+      if (!sections[currentSectionKey]) {
+        sections[currentSectionKey] = [];
       }
-    } else {
-      result.push(currentLine);
+    } else if (currentSectionKey) {
+      // Masukkan baris ke section yang sedang aktif
+      sections[currentSectionKey].push(currentLine);
     }
   }
 
-  return result.join('\n');
+  // Pass 2: Proses konversi format 2-baris web ke bracket [Chord] & Expand "Back to"
+  const finalParsedLines = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const currentLine = lines[i];
+    const trimmed = currentLine.trim();
+
+    // Deteksi perintah pengulangan seperti "Back to [*]", "Back to [reff]", atau "Back to chorus"
+    const backToMatch = trimmed.match(/back\s+to\s+(.+)/i);
+    if (backToMatch) {
+      let targetKey = backToMatch[1].trim().toLowerCase();
+      if (!targetKey.startsWith('[')) targetKey = `[${targetKey}]`;
+
+      // Jika section yang dituju ditemukan dalam memori, tulis ulang liriknya secara otomatis
+      if (sections[targetKey]) {
+        finalParsedLines.push(`\n${trimmed}`);
+        finalParsedLines.push(targetKey); // Tulis ulang header section-nya
+        
+        // Iterasi dan convert ulang baris-baris di dalam section tersebut
+        for (const secLine of sections[targetKey]) {
+          // Cek apakah baris tersebut adalah chord atau lirik
+          finalParsedLines.push(secLine);
+        }
+        continue;
+      }
+    }
+
+    // Proses standar konversi baris chord & lirik 2-baris
+    const nextLine = lines[i + 1];
+    const isChordLine = /^\s*([A-G][b#]?(m|maj|min|dim|aug|sus|[0-9])*\s*)+$/i.test(currentLine);
+    const isNextLineLyric = nextLine && !/^\s*([A-G][b#]?(m|maj|min|dim|aug|sus|[0-9])*\s*)+$/i.test(nextLine) && nextLine.trim() !== '';
+
+    if (isChordLine && isNextLineLyric) {
+      const chordMatches = [];
+      const regex = /([A-G][b#]?(m|maj|min|dim|aug|sus|[0-9])*)/gi;
+      let match;
+
+      while ((match = regex.exec(currentLine)) !== null) {
+        chordMatches.push({ chord: match[0], index: match.index });
+      }
+
+      const lyricText = nextLine.replace(/\u00a0/g, ' ');
+      const words = [];
+      const wordRegex = /\S+/g;
+      let wordMatch;
+
+      while ((wordMatch = wordRegex.exec(lyricText)) !== null) {
+        words.push({
+          word: wordMatch[0],
+          start: wordMatch.index,
+          end: wordMatch.index + wordMatch[0].length,
+          chords: []
+        });
+      }
+
+      for (const c of chordMatches) {
+        let assigned = false;
+        for (let wIdx = 0; wIdx < words.length; wIdx++) {
+          const w = words[wIdx];
+          const nextW = words[wIdx + 1];
+          if (c.index < w.end || (!nextW && c.index >= w.end)) {
+            w.chords.push(c.chord);
+            assigned = true;
+            break;
+          }
+        }
+        if (!assigned && words.length > 0) {
+          words[words.length - 1].chords.push(c.chord);
+        }
+      }
+
+      const mergedLine = words
+        .map(w => `${w.chords.map(ch => `[${ch}]`).join('')}${w.word}`)
+        .join(' ');
+
+      finalParsedLines.push(mergedLine);
+      i++; // Lewati baris lirik berikutnya karena sudah digabung
+    } else {
+      const cleanedLine = currentLine.replace(/\u00a0/g, ' ').replace(/[ \t]+/g, ' ').trim();
+      if (cleanedLine) {
+        finalParsedLines.push(cleanedLine);
+      }
+    }
+  }
+
+  // Gabungkan kembali hasil parsing dengan newline, lalu rapikan duplikat baris chord mentah yang ikut tersalin dalam section expand
+  return finalParsedLines.join('\n');
 };
+
+export const convertStandardToBracket = convertToBracketLyrics;
+export const cleanBracketLyrics = convertToBracketLyrics;
